@@ -1,0 +1,54 @@
+from pymongo import MongoClient
+from django.shortcuts import render
+from django.http import HttpResponse
+from .forms import LeaseForm
+
+def index(request):
+    return HttpResponse("DHCP Web App")
+
+client = MongoClient("mongodb://172.31.27.209:27017/")
+db = client["dhcpdb"]
+leases = db["leases"]
+
+def index(request):
+    if request.method == "POST":
+        form = LeaseForm(request.POST)
+        if form.is_valid():
+            mac = form.cleaned_data['mac_address']
+            dhcp = form.cleaned_data['dhcp_version']
+            assigned_ip = "192.168.1.10" if dhcp == "DHCPv4" else "2001:db8::1"
+            lease_time = 3600
+
+            leases.insert_one({
+                "mac_address": mac,
+                "dhcp_version": dhcp,
+                "assigned_ip": assigned_ip,
+                "lease_time": lease_time,
+            })
+
+            return render(request, "result.html", {"assigned_ip": assigned_ip})
+    else:
+        form = LeaseForm()
+    return render(request, "form.html", {"form": form})
+
+def leases_list(request):
+    lease_data = list(leases.find())
+    return render(request, "leases_list.html", {"lease_data": lease_data})
+
+def get_next_ip(dhcp_version):
+    if dhcp_version == "DHCPv4":
+        base = "192.168.1."
+        used = [l['assigned_ip'] for l in leases.find({"dhcp_version": "DHCPv4"})]
+        for i in range(10, 255):
+            ip = f"{base}{i}"
+            if ip not in used:
+                return ip
+    else:
+        base = "2001:db8::"
+        used = [l['assigned_ip'] for l in leases.find({"dhcp_version": "DHCPv6"})]
+        for i in range(1, 256):
+            ip = f"{base}{i:x}"
+            if ip not in used:
+                return ip
+    return None
+
